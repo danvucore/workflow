@@ -1,34 +1,39 @@
 'use strict';
-var State = function(name, activities) {
+var State = function(name) {
   this.name = name || '';
-  this.activities = activities || [];
-  function addActivies(activities) {
+  this.activities = [];
+  this.addActivies = function(activities) {
     this.activities = this.activities.concat(activities);
-  }
-  function execute(context) {
+  };
+
+  this.execute = function(context) {
     this.activities.forEach(function(activity) {
       activity.execute(context);
     });
-  }
+  };
 };
 
 var Transistion = function(config) {
-  this.fromState = config.state;
+  this.state = config.state;
   this.toState = config.toState;
   this.trigger = config.trigger;
-  this.action = config.action;
+  this.condition = config.condition;
 
   this.move = function(context) {
-    // this.move();
-    typeof this.action === 'function' && this.action(context);
+    if (typeof this.condition !== 'function') {
+      return true;
+    }
+    return this.condition(context);
   };
+
   this.triggeredBy = function() {
     return this.trigger;
   };
 
   this.fromState = function() {
-    return this.fromState;
+    return this.state;
   };
+
   this.nextState = function() {
     return this.toState;
   };
@@ -36,11 +41,17 @@ var Transistion = function(config) {
 
 var ActivityContext = function() {
   this.trigger = '';
+  this.data = null;
   this.getTrigger = function() {
     return this.trigger;
   };
+
   this.setTrigger = function(trigger) {
     this.trigger = trigger;
+  };
+
+  this.setData = function(data) {
+    this.data = data;
   };
 };
 
@@ -51,38 +62,51 @@ var WorkflowConfig = function() {
   this.load = function(config) {
     var tmpConfig = config || [];
     var seft = this;
+
     tmpConfig.forEach(function(stateConfig) {
       seft.configState(stateConfig);
       seft.configTransistion(stateConfig);
     });
   };
 
-  this.configTransistion = function(stateConfig) {
-    var transitions = stateConfig.transitions || [];
-    this.transitions = transitions.map(function(tr) {
-      return {
-        fromState: stateConfig.name,
-        toState: tr.to,
-        trigger: tr.condition
-      };
-    });
-  };
-
   this.configState = function(stateConfig) {
-    var state = new State(stateConfig.name, stateConfig.activities);
+    var state = new State(stateConfig.state, stateConfig.activities);
+    state.addActivies(stateConfig.activities);
     this.states.push(state);
   };
 
-  this.getTransistion = function(fromState, trigger) {
-    var transition = this.transitions.find(function(state) {
-      if (state.fromState === fromState.name) {
-        return state.transition;
-      }
+  this.configTransistion = function(stateConfig) {
+    var seft = this;
+    var transitions = stateConfig.transitions || [];
+
+    transitions.forEach(function(tr) {
+      var key = seft.getKey(stateConfig.state, tr.trigger);
+      seft.transitions[key] = new Transistion({
+        state: stateConfig.state,
+        toState: tr.toState,
+        trigger: tr.trigger,
+        condition: tr.condition
+      });
     });
+  };
+
+  this.getTransistions = function(fromState, trigger) {
+    var key = this.getKey(fromState, trigger);
+    return this.transitions[key] || null;
   };
 
   this.getStates = function() {
     return this.states;
+  };
+
+  this.stateFactory = function(stateName) {
+    return this.states.find(function(state) {
+      return state.name === stateName;
+    });
+  };
+
+  this.getKey = function(state, trigger) {
+    return state + '_' + trigger;
   };
 };
 
@@ -94,52 +118,86 @@ var Workflow = function() {
     this.workflowConfig = config;
   };
 
-  this.run = function(context) {
-    var transition = this.workflowConfig.getTransistion(
-      this.currentState,
-      context.getTrigger()
-    );
+  this.setCurrentState = function(state) {
+    var seft = this;
+    this.currentState = this.workflowConfig.states.find(function(stateModel) {
+      return stateModel.name === state;
+    });
   };
 
-  this.setCurrentState = function(stateName) {
+  this.getCurrentState = function() {
+    return this.currentState;
+  };
+
+  this.run = function(context) {
     var seft = this;
-    this.currentState = this.workflowConfig.states.find(function(state) {
-      return state.name === stateName;
-    });
+    var transition = this.workflowConfig.getTransistions(
+      this.currentState.name,
+      context.getTrigger()
+    );
+
+    if (transition && transition.move(context)) {
+      seft.setCurrentState(transition.nextState());
+      var nextState = seft.workflowConfig.stateFactory(transition.nextState());
+      nextState.execute(context);
+      return;
+    }
   };
 };
 
-var CalcActivity = function() {
-  this.name = 'CalcActivity';
-  this.execute = function(context) {};
+var InitActivity = function() {
+  this.name = 'InitActivity';
+  this.execute = function(context) {
+    console.log('Activity', this.name, context.data);
+  };
+};
+
+var EnterActivity = function() {
+  this.name = 'EnterActivity';
+  this.execute = function(context) {
+    console.log('Activity', this.name, context.data);
+  };
+};
+
+var BackActivity = function() {
+  this.name = 'BackActivity';
+  this.execute = function(context) {
+    console.log('Activity', this.name, context.data);
+  };
+};
+
+var STATELIST = {
+  INIT: 'INIT',
+  ENTER: 'ENTER',
+  BACK: 'BACK',
+  ACCEPT: 'ACCEPT',
+  CANCEL: 'CANCEL'
 };
 
 var DataConfig = [
   {
-    name: 'STATE_COMPANY',
-    activities: [new CalcActivity()],
+    state: 'INIT',
+    activities: [new InitActivity()],
     transitions: [
       {
-        to: 'STATE_DEPARTMENT',
-        trigger: 'down_company_deparment',
-        condition: function() {
-          console.log('STATE_DEPARTMENT');
+        toState: 'ENTER',
+        trigger: 'enter',
+        condition: function(context) {
+          console.log('condition enter', context.data);
           return true;
         }
-      },
+      }
+    ]
+  },
+  {
+    state: 'ENTER',
+    activities: [new EnterActivity(), new BackActivity()],
+    transitions: [
       {
-        to: 'STATE_TEAM',
-        trigger: 'down_company_team',
-        condition: function() {
-          console.log('STATE_TEAM');
-          return true;
-        }
-      },
-      {
-        to: 'STATE_INDIVIDUAL',
-        trigger: 'down_company_individual',
-        condition: function() {
-          console.log('STATE_INDIVIDUAL');
+        toState: 'INIT',
+        trigger: 'init',
+        condition: function(context) {
+          console.log('condition init', context.data);
           return true;
         }
       }
@@ -147,14 +205,23 @@ var DataConfig = [
   }
 ];
 
-var activityContext = new ActivityContext();
-activityContext.setTrigger('down_company_deparment');
-
 var wfConfig = new WorkflowConfig();
 wfConfig.load(DataConfig);
 
 var workflow = new Workflow();
-
 workflow.setConfig(wfConfig);
-workflow.setCurrentState('STATE_COMPANY');
+workflow.setCurrentState(STATELIST.INIT);
+
+var activityContext = new ActivityContext();
+activityContext.setTrigger('enter');
+activityContext.setData({ code: 200, message: 'Init' });
 workflow.run(activityContext);
+
+console.log('getCurrentState', workflow.getCurrentState().name);
+
+var activityContext = new ActivityContext();
+activityContext.setTrigger('init');
+activityContext.setData({ code: 200, message: 'Enter' });
+
+workflow.run(activityContext);
+console.log('getCurrentState', workflow.getCurrentState().name);
