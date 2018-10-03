@@ -217,11 +217,18 @@ activityContext.setTrigger('enter');
 activityContext.setData({ code: 200, message: 'Init' });
 workflow.run(activityContext);
 
-console.log('getCurrentState', workflow.getCurrentState().name);
+console.log('1______getCurrentState', workflow.getCurrentState().name);
 
 var activityContext = new ActivityContext();
 activityContext.setTrigger('init');
 activityContext.setData({ code: 200, message: 'Enter' });
 
 workflow.run(activityContext);
-console.log('getCurrentState', workflow.getCurrentState().name);
+console.log('2______getCurrentState', workflow.getCurrentState().name);
+
+var activityContext = new ActivityContext();
+activityContext.setTrigger('enter');
+activityContext.setData({ code: 200, message: 'Init' });
+
+workflow.run(activityContext);
+console.log('3______getCurrentState', workflow.getCurrentState().name);
